@@ -119,18 +119,18 @@ def manifool_single_target(I_org, net, mode, target,
         
         I_batch = torch.empty((batch_size,) + I_org.size(), dtype=torch.float32, device=I_org.device)
 
-        diff_max = -np.inf
-        for ind in range(0,len(step_sizes),batch_size):
+        s_final = None  # Initialize s_final
+        diff_max = None  # Initialize diff_max
+        for ind in range(0, len(step_sizes), batch_size):
 
             # Generate transformed images
-            for i,s in enumerate(step_sizes[ind:ind+batch_size]):
-                v_t = s*u + gamma*v_pre
-
-                tfm_ = tfm.compose(g.para2tfm(-v_t,mode,1))
-                I_batch[i,:,:,:] = tfm_(I_org)
+            for i, s_value in enumerate(step_sizes[ind:ind+batch_size]):
+                v_t = s_value * u + gamma * v_pre
+                tfm_ = tfm.compose(g.para2tfm(-v_t, mode, 1))
+                I_batch[i, :, :, :] = tfm_(I_org)
 
             if crop:
-                I_c = g.center_crop_tensor(I_batch,crop)
+                I_c = g.center_crop_tensor(I_batch, crop)
             else:
                 I_c = I_batch
 
@@ -138,20 +138,32 @@ def manifool_single_target(I_org, net, mode, target,
             x = Variable(I_c.to(next(net.parameters()).device), requires_grad=True)
 
             output = net(x)
-            f_org = output.data[:,k_org]
-            diff_curr = f_org - output.data[:,target]
-            diff_x, s = torch.max((diff_pre - diff_curr),0)
+            f_org = output.data[:, k_org]
+            diff_curr = f_org - output.data[:, target]
+            diff_values = (diff_pre - diff_curr)
+            diff_x, s = torch.max(diff_values, 0)
 
-            if diff_max < diff_x.item():
+            # Skip iteration if diff_x is not finite
+            if not torch.isfinite(diff_x):
+                continue
+
+            if diff_max is None or diff_x.item() > diff_max:
                 diff_max = diff_x.item()
                 s_final = s + ind
-                k_I = get_output_label(output,s)
+                k_I = get_output_label(output, s)
                 chosen_diff = diff_curr[s]
-                I_chosen = I_batch[s,:].clone()
+                I_chosen = I_batch[s, :].clone()
+
+        if s_final is None:
+            # Handle the case where no valid step size was found
+            raise RuntimeError("No valid step size found in line_search")
 
         s = s_final
 
+
         return step_sizes[s], chosen_diff, I_chosen, k_I
+    
+    
 
     #START OF MANIFOOL
 
