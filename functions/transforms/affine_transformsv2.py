@@ -3,11 +3,6 @@ import math
 import torch
 import torch.cuda
 
-try:
-    from .gpu_projective import proj_warp_gpu
-except Exception as e:
-    print('GPU not available. Ignore if not using GPU')
-
 from skimage.transform import warp, AffineTransform
 import numpy as np
 
@@ -52,22 +47,21 @@ def apply_transform(x, transform, fill_mode='constant', fill_value=0., interp_or
     transform = transform_matrix_offset_center(transform, x.size()[2], x.size()[1])
 
     if x.is_cuda:
-        out = torch.empty(x.size(), dtype=torch.float32, device='cuda')
-        proj_warp_gpu(transform.float().cuda(), x, out)
-
+        device = torch.device("cuda")
     else:
-        x = x.numpy()
-        atfm = AffineTransform(matrix=transform.numpy())
-        channel_images = [warp(x_channel,
-                               inverse_map=atfm,
-                               order=interp_order,
-                               mode=fill_mode,
-                               cval=fill_value,
-                               preserve_range=True)
-                               for x_channel in x]
-        out = torch.from_numpy(np.stack(channel_images, axis=0).astype('float32'))
+        device = torch.device("cpu")
+    x = x.cpu().numpy()
+    atfm = AffineTransform(matrix=transform.numpy())
+    channel_images = [warp(x_channel,
+                            inverse_map=atfm,
+                            order=interp_order,
+                            mode=fill_mode,
+                            cval=fill_value,
+                            preserve_range=True)
+                            for x_channel in x]
+    out = torch.from_numpy(np.stack(channel_images, axis=0).astype('float32'))
 
-    return out
+    return out.to(device)
 
 class Affine(object):
     """
